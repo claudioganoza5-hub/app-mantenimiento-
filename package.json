@@ -1,0 +1,13 @@
+{
+  "name": "parte-salas",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Control de mantenimiento de salas: tareas de luces, sonido y mantenimiento general por local.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs"
+  }
+}
