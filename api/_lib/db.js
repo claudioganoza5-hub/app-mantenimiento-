@@ -8,9 +8,78 @@
 
 import crypto from "node:crypto";
 
-const PROJECT = process.env.FIREBASE_PROJECT_ID || "";
-const EMAIL = process.env.FIREBASE_CLIENT_EMAIL || "";
-const KEY = (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+const PROJECT = (process.env.FIREBASE_PROJECT_ID || "").trim();
+const EMAIL = (process.env.FIREBASE_CLIENT_EMAIL || "").trim().replace(/^["']|["']$/g, "");
+
+/**
+ * La clave privada llega de formas distintas segun como se haya pegado en
+ * Vercel: con comillas o sin ellas, con los \n escritos tal cual o ya
+ * convertidos en saltos de linea, o incluso toda en una sola linea. Aqui se
+ * normaliza cualquiera de esas formas al PEM que espera Node.
+ */
+function normalizarClave(bruta) {
+  let k = String(bruta || "").trim();
+
+  // Comillas envolventes: rectas, tipograficas (las que mete TextEdit) o acentos graves.
+  const COMILLAS = ['"', "'", "`", "“", "”", "‘", "’"];
+  while (k.length > 1 && COMILLAS.includes(k[0]) && COMILLAS.includes(k[k.length - 1])) {
+    k = k.slice(1, -1).trim();
+  }
+
+  // \n escritos como dos caracteres -> saltos de linea reales.
+  k = k.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
+  k = k.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  // Si se ha quedado en una sola linea, se reconstruye el PEM con lineas de 64.
+  if (k.includes("-----BEGIN") && !k.includes("\n")) {
+    const m = k.match(/-----BEGIN ([A-Z ]+?)-----(.*?)-----END \1-----/);
+    if (m) {
+      const cuerpo = (m[2] || "").replace(/\s+/g, "");
+      const lineas = cuerpo.match(/.{1,64}/g) || [];
+      k = `-----BEGIN ${m[1]}-----\n${lineas.join("\n")}\n-----END ${m[1]}-----`;
+    }
+  }
+
+  if (k && !k.endsWith("\n")) k += "\n";
+  return k;
+}
+
+/** Descripcion de lo que se ha recibido, sin revelar la clave. */
+function pistaClave(bruta) {
+  const k = String(bruta || "");
+  if (!k) return "la variable llega vacia";
+  const t = k.trim();
+  return [
+    `${k.length} caracteres`,
+    /^["'`“‘]/.test(t) ? "empieza por comilla" : "sin comilla inicial",
+    k.includes("-----BEGIN") ? "contiene BEGIN" : "NO contiene la linea BEGIN",
+    k.includes("\n") ? "con saltos de linea reales" : k.includes("\\n") ? "con \\n escritos" : "sin ningun salto",
+  ].join(", ");
+}
+
+const KEY_BRUTA = process.env.FIREBASE_PRIVATE_KEY || "";
+const KEY = normalizarClave(KEY_BRUTA);
+
+function errorDeClave() {
+  return (
+    "No se puede usar FIREBASE_PRIVATE_KEY. Copiala otra vez del archivo .json de Firebase, " +
+    `entera, desde -----BEGIN hasta -----END. (Lo recibido: ${pistaClave(KEY_BRUTA)}.)`
+  );
+}
+
+/**
+ * Comprueba, sin salir a la red, que la clave privada sirve para firmar.
+ * Devuelve { ok } o { ok:false, motivo } con una explicacion en claro.
+ */
+export function clavePrivadaUtilizable() {
+  if (!KEY) return { ok: false, motivo: errorDeClave() };
+  try {
+    crypto.createSign("RSA-SHA256").update("comprobacion").sign(KEY);
+    return { ok: true };
+  } catch {
+    return { ok: false, motivo: errorDeClave() };
+  }
+}
 
 export const HAY_FIREBASE = Boolean(PROJECT && EMAIL && KEY);
 const EN_PRODUCCION = Boolean(process.env.VERCEL);
@@ -111,10 +180,7 @@ async function accessToken() {
   try {
     firma = base64url(crypto.createSign("RSA-SHA256").update(`${cabecera}.${cuerpo}`).sign(KEY));
   } catch (e) {
-    throw new ErrorDatos(
-      "La clave privada de Firebase no es valida. Revisa que FIREBASE_PRIVATE_KEY este entre comillas y conserve los \\n.",
-      500
-    );
+    throw new ErrorDatos(errorDeClave(), 500);
   }
 
   const res = await fetch("https://oauth2.googleapis.com/token", {
