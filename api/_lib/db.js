@@ -267,22 +267,37 @@ export async function listar(col, limite = 1000) {
  * Cada filtro es [campo, operador, valor] con operador "==" o "en".
  * Es la via barata: Firestore cobra por documento leido, no por consulta.
  */
+const OPERADORES = {
+  "==": "EQUAL",
+  en: "IN",
+  ">=": "GREATER_THAN_OR_EQUAL",
+  "<=": "LESS_THAN_OR_EQUAL",
+  ">": "GREATER_THAN",
+  "<": "LESS_THAN",
+};
+
 export async function consultar(col, filtros = [], limite = 500) {
   if (!HAY_FIREBASE) {
-    const cumple = (d) =>
-      filtros.every(([campo, op, valor]) =>
-        op === "en" ? valor.includes(d[campo]) : d[campo] === valor
-      );
+    const compara = (valorDoc, op, valor) => {
+      if (op === "en") return valor.includes(valorDoc);
+      if (valorDoc === undefined || valorDoc === null) return false;
+      if (op === "==") return valorDoc === valor;
+      if (op === ">=") return valorDoc >= valor;
+      if (op === "<=") return valorDoc <= valor;
+      if (op === ">") return valorDoc > valor;
+      if (op === "<") return valorDoc < valor;
+      return false;
+    };
     return [...colMem(col).entries()]
       .map(([id, d]) => ({ id, ...clonar(d) }))
-      .filter(cumple)
+      .filter((d) => filtros.every(([campo, op, valor]) => compara(d[campo], op, valor)))
       .slice(0, limite);
   }
 
   const comoFiltro = ([campo, op, valor]) => ({
     fieldFilter: {
       field: { fieldPath: campo },
-      op: op === "en" ? "IN" : "EQUAL",
+      op: OPERADORES[op] || "EQUAL",
       value: op === "en" ? { arrayValue: { values: valor.map(aValor) } } : aValor(valor),
     },
   });

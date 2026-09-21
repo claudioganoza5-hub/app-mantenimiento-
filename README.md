@@ -155,6 +155,28 @@ solo lo carga dirección.
 
 ---
 
+## Informes
+
+La pestaña **Informes** responde a "qué se hizo el mes pasado". Eliges un
+periodo — este mes, el mes pasado, un trimestre, el año, o las fechas que
+quieras — y sale el parte de **lo que se cerró dentro de ese periodo**.
+
+Arriba, cuatro cifras: cuántas se cerraron, cuántos días de media pasan entre
+que una tarea se abre y se cierra, cuántas se cerraron después de su fecha
+límite, y cuántas siguen abiertas hoy.
+
+Debajo, el desglose por sala, por área y por persona, y el cumplimiento del
+preventivo: de las revisiones periódicas cerradas en el periodo, cuántas
+entraron dentro de plazo. Al final, el listado completo.
+
+El botón **Descargar** saca un CSV con todas las tareas del periodo —incluidas
+las que no caben en el listado—, con los días que estuvo abierta cada una y si
+venía de una revisión periódica. Se abre directamente en Excel o en Numbers.
+
+Los encargados ven el informe de su sala; dirección, el de las cinco.
+
+---
+
 ## Consumo de Firestore
 
 El plan gratuito de Firebase da 50.000 lecturas de documento al día, y una
@@ -165,7 +187,9 @@ para no acercarse al límite:
   cuando alguien quiere verlas.
 - **Salas y equipo se guardan 20 segundos en memoria**, porque casi nunca cambian.
 - El navegador **refresca cada 60 segundos**, solo con la pestaña a la vista, y
-  además al instante después de cualquier cambio propio.
+  además al instante después de cualquier cambio propio. Tras **8 minutos sin
+  que nadie toque nada deja de preguntar**, y se reanuda al primer gesto o al
+  volver a la pestaña: una pestaña olvidada abierta toda la noche no gasta nada.
 - La comprobación de revisiones vencidas se hace **como mucho cada 5 minutos**,
   salvo cuando alguien acaba de crear o editar una, que entonces es inmediata.
 
@@ -199,6 +223,7 @@ api/                  los endpoints (Vercel los publica como funciones)
   _lib/auth.js        códigos cifrados y sesiones firmadas
   _lib/model.js       reglas de roles, permisos y periodicidades
   _lib/preventivo.js  convierte las revisiones vencidas en tareas
+  informe.js          las tareas cerradas dentro de un periodo
 scripts/dev.mjs       servidor local
 ```
 

@@ -166,6 +166,36 @@ table.team th{text-align:left; font-size:10.5px; letter-spacing:.1em; text-trans
 table.team td{padding:9px; border-bottom:1px solid var(--line-soft); vertical-align:middle}
 table.team tr:last-child td{border-bottom:0}
 
+/* ======================== informes ======================== */
+.kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(178px,1fr)); gap:11px; margin-bottom:16px}
+.kpi{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:13px 14px; box-shadow:var(--sombra)}
+.kpi b{display:block; font-family:"Oswald",sans-serif; font-size:29px; font-weight:500; line-height:1;
+  font-variant-numeric:tabular-nums; margin-bottom:5px}
+.kpi span{font-size:10.5px; font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:var(--text-3)}
+.kpi small{display:block; font-size:11.5px; color:var(--text-2); margin-top:4px}
+.kpi.alerta b{color:var(--bad)}
+
+/* Barras horizontales: una sola tinta, porque comparan magnitudes de la
+   misma medida. El color no distingue nada aquí, lo hace la etiqueta. */
+.barras{display:flex; flex-direction:column; gap:9px}
+.barra{display:grid; grid-template-columns:minmax(80px,132px) 1fr auto; gap:10px; align-items:center; font-size:13px}
+.barra .etq{color:var(--text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.barra .pista{display:block; background:var(--surface-2); border-radius:4px; height:12px; overflow:hidden}
+.barra .relleno{display:block; background:var(--accent); height:12px; border-radius:0 4px 4px 0; min-width:3px}
+.barra .val{font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums;
+  font-size:12.5px; color:var(--text); min-width:2ch; text-align:right}
+.barra.buena .relleno{background:var(--ok)}
+.barra.tarde .relleno{background:var(--warn)}
+@media (max-width:420px){ .barra{grid-template-columns:minmax(72px,1fr) 1.2fr auto} }
+
+.periodos{display:flex; gap:7px; overflow-x:auto; scrollbar-width:none; margin-bottom:12px}
+.periodos::-webkit-scrollbar{display:none}
+.rango{display:flex; gap:9px; align-items:flex-end; flex-wrap:wrap; margin-bottom:16px}
+.rango .field{flex:1; min-width:135px}
+/* El detalle tiene cinco columnas: en el móvil se desplaza en su caja
+   en vez de estrujar los títulos hasta hacerlos ilegibles. */
+table.team.detalle{min-width:560px}
+
 .empty{text-align:center; color:var(--text-2); padding:34px 16px; font-size:14px}
 .empty b{display:block; font-family:"Oswald",sans-serif; font-size:17px; letter-spacing:.05em;
   text-transform:uppercase; color:var(--text); margin-bottom:5px}

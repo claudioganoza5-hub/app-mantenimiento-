@@ -29,6 +29,7 @@ const S = {
   preventivas: [],
   cerradas: [],
   cerradasCargadas: false,
+  informe: { desde: "", hasta: "", etiqueta: "", datos: null, cargando: false, error: "" },
   tab: "",
   filtro: { estado: "abiertas", sala: "", area: "" },
   hoja: null,
@@ -299,9 +300,11 @@ function vistaSetup() {
 function pestanas() {
   if (esDirector()) {
     return [["resumen", "Resumen"], ["tareas", "Tareas"], ["preventivo", "Preventivo"],
-            ["equipo", "Equipo"], ["salas", "Salas"]];
+            ["informes", "Informes"], ["equipo", "Equipo"], ["salas", "Salas"]];
   }
-  if (esEncargado()) return [["resumen", "Resumen"], ["tareas", "Tareas"], ["preventivo", "Preventivo"]];
+  if (esEncargado()) {
+    return [["resumen", "Resumen"], ["tareas", "Tareas"], ["preventivo", "Preventivo"], ["informes", "Informes"]];
+  }
   return [["mias", "Mis tareas"], ["sala", "Mi sala"]];
 }
 
@@ -316,6 +319,8 @@ function vistaApp() {
       ? vistaTareas(null, true)
       : S.tab === "preventivo"
       ? vistaPreventivo()
+      : S.tab === "informes"
+      ? vistaInformes()
       : S.tab === "equipo"
       ? vistaEquipo()
       : S.tab === "salas"
@@ -569,6 +574,184 @@ function vistaSalas() {
         })
         .join("")}
     </tbody></table></div></div>`;
+}
+
+/* ------------------------------ informes ------------------------------ */
+
+const dosCifras = (n) => String(n).padStart(2, "0");
+const aISO = (a, m, d) => `${a}-${dosCifras(m)}-${dosCifras(d)}`;
+const ultimoDia = (a, m) => new Date(a, m, 0).getDate();
+
+/** Los periodos que de verdad se piden: el mes y el trimestre. */
+function periodos() {
+  const hoy = new Date();
+  const a = hoy.getFullYear();
+  const m = hoy.getMonth() + 1;
+  const trim = Math.floor((m - 1) / 3);
+  const iniTrim = trim * 3 + 1;
+  const mesAnterior = m === 1 ? { a: a - 1, m: 12 } : { a, m: m - 1 };
+  const trimAnterior = trim === 0 ? { a: a - 1, ini: 10 } : { a, ini: iniTrim - 3 };
+
+  return [
+    { clave: "mes", etiqueta: "Este mes", desde: aISO(a, m, 1), hasta: aISO(a, m, ultimoDia(a, m)) },
+    {
+      clave: "mes-1",
+      etiqueta: "Mes pasado",
+      desde: aISO(mesAnterior.a, mesAnterior.m, 1),
+      hasta: aISO(mesAnterior.a, mesAnterior.m, ultimoDia(mesAnterior.a, mesAnterior.m)),
+    },
+    {
+      clave: "trim",
+      etiqueta: "Este trimestre",
+      desde: aISO(a, iniTrim, 1),
+      hasta: aISO(a, iniTrim + 2, ultimoDia(a, iniTrim + 2)),
+    },
+    {
+      clave: "trim-1",
+      etiqueta: "Trimestre pasado",
+      desde: aISO(trimAnterior.a, trimAnterior.ini, 1),
+      hasta: aISO(trimAnterior.a, trimAnterior.ini + 2, ultimoDia(trimAnterior.a, trimAnterior.ini + 2)),
+    },
+    { clave: "ano", etiqueta: "Este año", desde: aISO(a, 1, 1), hasta: aISO(a, 12, 31) },
+  ];
+}
+
+function barras(filas, clase = "") {
+  if (!filas.length) return `<p style="color:var(--text-3);font-size:13px;margin:0">Nada en este periodo.</p>`;
+  const tope = Math.max(...filas.map((f) => f.valor)) || 1;
+  return `<div class="barras">${filas
+    .map(
+      (f) => `<div class="barra ${f.clase || clase}">
+        <span class="etq" title="${esc(f.etiqueta)}">${esc(f.etiqueta)}</span>
+        <span class="pista"><span class="relleno" style="width:${Math.max(2, (f.valor / tope) * 100)}%"></span></span>
+        <span class="val">${f.valor}</span>
+      </div>`
+    )
+    .join("")}</div>`;
+}
+
+function cuentaPor(tareas, clave, nombre) {
+  const mapa = new Map();
+  for (const t of tareas) {
+    const k = t[clave] || "—";
+    mapa.set(k, (mapa.get(k) || 0) + 1);
+  }
+  return [...mapa.entries()]
+    .map(([k, valor]) => ({ etiqueta: nombre(k), valor }))
+    .sort((a, b) => b.valor - a.valor);
+}
+
+function vistaInformes() {
+  const inf = S.informe;
+  if (!inf.desde) {
+    const p = periodos()[0];
+    inf.desde = p.desde;
+    inf.hasta = p.hasta;
+    inf.etiqueta = p.etiqueta;
+    pedirInforme();
+  }
+
+  const chips = periodos()
+    .map(
+      (p) =>
+        `<button class="chip" data-periodo="${p.clave}" aria-pressed="${inf.etiqueta === p.etiqueta}">${esc(p.etiqueta)}</button>`
+    )
+    .join("");
+
+  let cuerpo;
+  if (inf.cargando) {
+    cuerpo = `<div class="cargando" style="min-height:160px"><span class="giro"></span>Reuniendo el periodo…</div>`;
+  } else if (inf.error) {
+    cuerpo = `<div class="aviso-error">${esc(inf.error)}</div>`;
+  } else if (!inf.datos) {
+    cuerpo = "";
+  } else {
+    cuerpo = cuerpoInforme(inf.datos);
+  }
+
+  return `<div class="periodos">${chips}</div>
+    <div class="rango">
+      <div class="field"><label>Desde</label><input type="date" id="i-desde" value="${esc(inf.desde)}"></div>
+      <div class="field"><label>Hasta</label><input type="date" id="i-hasta" value="${esc(inf.hasta)}"></div>
+      <button class="btn" data-accion="aplicar-rango">Ver</button>
+      ${inf.datos && inf.datos.tareas.length ? `<button class="btn ghost" data-accion="descargar-informe">Descargar</button>` : ""}
+    </div>
+    ${cuerpo}`;
+}
+
+function cuerpoInforme(d) {
+  const tareas = d.tareas;
+  if (!tareas.length) {
+    return `<div class="empty"><b>Sin tareas cerradas</b>No se cerró nada entre esas dos fechas.</div>`;
+  }
+
+  // Dias que tardó cada tarea desde que se creó hasta que se cerró.
+  const duraciones = tareas
+    .filter((t) => t.creadoEn && t.cerradaEn)
+    .map((t) => (new Date(t.cerradaEn) - new Date(t.creadoEn)) / 86400000)
+    .filter((n) => Number.isFinite(n) && n >= 0);
+  const media = duraciones.length ? duraciones.reduce((a, b) => a + b, 0) / duraciones.length : null;
+
+  const tarde = tareas.filter((t) => t.vence && t.cerradaEn.slice(0, 10) > t.vence);
+  const periodicas = tareas.filter((t) => t.origen === "preventivo");
+  const periodicasTarde = periodicas.filter((t) => t.vence && t.cerradaEn.slice(0, 10) > t.vence);
+
+  const kpis = `<div class="kpis">
+    <div class="kpi"><b class="mono">${tareas.length}</b><span>Cerradas</span></div>
+    <div class="kpi"><b class="mono">${media === null ? "—" : media.toFixed(1)}</b><span>Días de media</span>
+      <small>desde que se abre hasta que se cierra</small></div>
+    <div class="kpi ${tarde.length ? "alerta" : ""}"><b class="mono">${tarde.length}</b><span>Fuera de plazo</span>
+      <small>cerradas después de su fecha límite</small></div>
+    <div class="kpi"><b class="mono">${d.abiertasAhora}</b><span>Abiertas hoy</span>
+      <small>pendientes ahora mismo, de cualquier fecha</small></div>
+  </div>`;
+
+  const bloque = (titulo, contenido) =>
+    `<div class="panel" style="margin-bottom:14px"><div class="panel-h"><h2>${esc(titulo)}</h2></div>
+      <div class="panel-b">${contenido}</div></div>`;
+
+  const preventivo = periodicas.length
+    ? bloque(
+        "Cumplimiento del preventivo",
+        barras([
+          { etiqueta: "Dentro de plazo", valor: periodicas.length - periodicasTarde.length, clase: "buena" },
+          { etiqueta: "Fuera de plazo", valor: periodicasTarde.length, clase: "tarde" },
+        ]) +
+          `<p class="note" style="margin-top:11px">${periodicas.length} de las ${tareas.length} cerradas
+           vinieron de una revisión periódica.</p>`
+      )
+    : "";
+
+  const filas = tareas
+    .slice(0, 400)
+    .map(
+      (t) => `<tr>
+        <td class="mono" style="white-space:nowrap">${esc(fechaCorta(t.cerradaEn))}</td>
+        <td><b>${esc(t.titulo)}</b>${t.origen === "preventivo" ? ' <span class="area" style="color:var(--accent)">· periódica</span>' : ""}</td>
+        <td style="white-space:nowrap"><span class="sala-tag">${esc(salaNombre(t.sala))}</span></td>
+        <td><span class="area">${esc(AREAS[t.area] || "")}</span></td>
+        <td style="white-space:nowrap">${esc(personaNombre(t.asignadoA) || "—")}</td>
+      </tr>`
+    )
+    .join("");
+
+  return (
+    kpis +
+    (d.truncado
+      ? `<div class="note" style="margin-bottom:14px">El periodo tiene más de 1.000 tareas cerradas y se han recortado. Consulta meses sueltos para verlo completo.</div>`
+      : "") +
+    bloque("Por sala", barras(cuentaPor(tareas, "sala", salaNombre))) +
+    bloque("Por área", barras(cuentaPor(tareas, "area", (k) => AREAS[k] || k))) +
+    bloque("Por persona", barras(cuentaPor(tareas, "asignadoA", (k) => personaNombre(k) || "Sin asignar"))) +
+    preventivo +
+    `<div class="panel"><div class="panel-h"><h2>Detalle</h2>
+        <span class="area">${tareas.length} tarea${tareas.length === 1 ? "" : "s"}</span></div>
+      <div class="tablewrap"><table class="team detalle"><thead><tr>
+        <th>Cerrada</th><th>Tarea</th><th>Sala</th><th>Área</th><th>Quién</th></tr></thead>
+        <tbody>${filas}</tbody></table></div>
+      ${tareas.length > 400 ? `<div class="panel-b"><div class="note">Se muestran las 400 más recientes. La descarga las lleva todas.</div></div>` : ""}
+    </div>`
+  );
 }
 
 /* -------------------------------- hojas -------------------------------- */
@@ -874,7 +1057,7 @@ document.addEventListener("click", async (ev) => {
     "[data-persona],[data-tecla],[data-accion],[data-tab],[data-abrir],[data-estado]," +
       "[data-f-estado],[data-f-sala],[data-f-area],[data-ir-sala],[data-ver]," +
       "[data-editar-persona],[data-editar-sala],[data-toggle-sala],[data-scrim]," +
-      "[data-editar-revision],[data-nueva-revision],[data-recomendadas]"
+      "[data-editar-revision],[data-nueva-revision],[data-recomendadas],[data-periodo]"
   );
   if (!el) return;
 
@@ -901,6 +1084,7 @@ document.addEventListener("click", async (ev) => {
   if (el.hasAttribute("data-editar-revision")) { S.hoja = hojaRevision(el.getAttribute("data-editar-revision")); return pintar(); }
   if (el.hasAttribute("data-nueva-revision")) { S.hoja = hojaRevision(null, el.getAttribute("data-nueva-revision")); return pintar(); }
   if (el.hasAttribute("data-recomendadas")) return cargarRecomendadas(el.getAttribute("data-recomendadas"));
+  if (el.hasAttribute("data-periodo")) return elegirPeriodo(el.getAttribute("data-periodo"));
   if (el.hasAttribute("data-toggle-sala")) {
     const sid = el.getAttribute("data-toggle-sala");
     const arr = S.hoja.salasSel;
@@ -934,6 +1118,8 @@ document.addEventListener("click", async (ev) => {
     case "guardar-revision": return guardarRevision();
     case "borrar-revision": return borrarRevision();
     case "ver-cerradas": return pedirCerradas();
+    case "aplicar-rango": return aplicarRango();
+    case "descargar-informe": return descargarInforme();
   }
 });
 
@@ -1297,6 +1483,86 @@ async function cargarRecomendadas(sala) {
   });
 }
 
+/* ------------------------------ informes ------------------------------ */
+
+function elegirPeriodo(clave) {
+  const p = periodos().find((x) => x.clave === clave);
+  if (!p) return;
+  S.informe.desde = p.desde;
+  S.informe.hasta = p.hasta;
+  S.informe.etiqueta = p.etiqueta;
+  pedirInforme();
+}
+
+function aplicarRango() {
+  const desde = document.getElementById("i-desde").value;
+  const hasta = document.getElementById("i-hasta").value;
+  if (!desde || !hasta) return aviso("Indica las dos fechas.", true);
+  if (desde > hasta) return aviso("La fecha inicial va después de la final.", true);
+  S.informe.desde = desde;
+  S.informe.hasta = hasta;
+  S.informe.etiqueta = "";
+  pedirInforme();
+}
+
+async function pedirInforme() {
+  const inf = S.informe;
+  if (inf.cargando) return;
+  inf.cargando = true;
+  inf.error = "";
+  pintar();
+  try {
+    inf.datos = await api(`/api/informe?desde=${encodeURIComponent(inf.desde)}&hasta=${encodeURIComponent(inf.hasta)}`);
+  } catch (e) {
+    if (e.estado === 401) { inf.cargando = false; return mostrarAcceso(); }
+    inf.datos = null;
+    inf.error = e.message;
+  }
+  inf.cargando = false;
+  pintar();
+}
+
+/**
+ * Descarga en CSV, que Excel y Numbers abren directamente. Punto y coma como
+ * separador y BOM al principio: es lo que espera el Excel en español, y sin
+ * eso los acentos salen rotos.
+ */
+function descargarInforme() {
+  const d = S.informe.datos;
+  if (!d || !d.tareas.length) return;
+
+  const campo = (v) => {
+    const s = String(v ?? "").replace(/"/g, '""');
+    return /[";\n]/.test(s) ? `"${s}"` : s;
+  };
+  const fecha = (iso) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "");
+  const dias = (t) => {
+    if (!t.creadoEn || !t.cerradaEn) return "";
+    const n = (new Date(t.cerradaEn) - new Date(t.creadoEn)) / 86400000;
+    return Number.isFinite(n) && n >= 0 ? n.toFixed(1).replace(".", ",") : "";
+  };
+
+  const cabecera = ["Cerrada", "Tarea", "Sala", "Área", "Prioridad", "Asignada a",
+                    "Abierta", "Fecha límite", "Días abierta", "Origen"];
+  const filas = d.tareas.map((t) => [
+    fecha(t.cerradaEn), t.titulo, salaNombre(t.sala), AREAS[t.area] || t.area,
+    PRIOS[t.prioridad] || t.prioridad, personaNombre(t.asignadoA) || "Sin asignar",
+    fecha(t.creadoEn), fecha(t.vence), dias(t),
+    t.origen === "preventivo" ? "Revisión periódica" : "Incidencia",
+  ]);
+
+  const csv = "﻿" + [cabecera, ...filas].map((f) => f.map(campo).join(";")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const enlace = document.createElement("a");
+  enlace.href = url;
+  enlace.download = `bitacora-${d.desde}-a-${d.hasta}.csv`;
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  aviso("Descargado");
+}
+
 /* ------------------------------- salas ------------------------------- */
 
 async function guardarSala() {
@@ -1345,9 +1611,21 @@ async function arrancar() {
   }
 }
 
-// Refresco periodico mientras la pestana esta a la vista y no hay nada abierto.
+/**
+ * Refresco periodico. Se detiene solo tras un rato sin que nadie toque nada:
+ * una pestana olvidada abierta toda la noche no tiene por que seguir
+ * preguntando al servidor. Cualquier gesto, o volver a la pestana, lo reanuda.
+ */
+const INACTIVO_MS = 8 * 60 * 1000;
+let ultimoGesto = Date.now();
+
+for (const evento of ["pointerdown", "keydown", "focus"]) {
+  window.addEventListener(evento, () => { ultimoGesto = Date.now(); }, { passive: true, capture: true });
+}
+
 setInterval(async () => {
   if (S.vista !== "app" || S.hoja || document.hidden) return;
+  if (Date.now() - ultimoGesto > INACTIVO_MS) return;
   try {
     await cargarDatos();
     pintar();
@@ -1355,7 +1633,9 @@ setInterval(async () => {
 }, 60000);
 
 document.addEventListener("visibilitychange", async () => {
-  if (!document.hidden && S.vista === "app" && !S.hoja) {
+  if (document.hidden) return;
+  ultimoGesto = Date.now();
+  if (S.vista === "app" && !S.hoja) {
     try { await cargarDatos(); pintar(); } catch {}
   }
 });
