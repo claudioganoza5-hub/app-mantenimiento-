@@ -262,6 +262,71 @@ export async function listar(col, limite = 1000) {
   return salida;
 }
 
+/**
+ * Documentos de una coleccion que cumplen un filtro, sin traer el resto.
+ * Cada filtro es [campo, operador, valor] con operador "==" o "en".
+ * Es la via barata: Firestore cobra por documento leido, no por consulta.
+ */
+export async function consultar(col, filtros = [], limite = 500) {
+  if (!HAY_FIREBASE) {
+    const cumple = (d) =>
+      filtros.every(([campo, op, valor]) =>
+        op === "en" ? valor.includes(d[campo]) : d[campo] === valor
+      );
+    return [...colMem(col).entries()]
+      .map(([id, d]) => ({ id, ...clonar(d) }))
+      .filter(cumple)
+      .slice(0, limite);
+  }
+
+  const comoFiltro = ([campo, op, valor]) => ({
+    fieldFilter: {
+      field: { fieldPath: campo },
+      op: op === "en" ? "IN" : "EQUAL",
+      value: op === "en" ? { arrayValue: { values: valor.map(aValor) } } : aValor(valor),
+    },
+  });
+
+  const structuredQuery = { from: [{ collectionId: col }], limit: limite };
+  if (filtros.length === 1) structuredQuery.where = comoFiltro(filtros[0]);
+  else if (filtros.length > 1) {
+    structuredQuery.where = {
+      compositeFilter: { op: "AND", filters: filtros.map(comoFiltro) },
+    };
+  }
+
+  const datos = await llamar(":runQuery", {
+    method: "POST",
+    body: JSON.stringify({ structuredQuery }),
+  });
+  if (!Array.isArray(datos)) return [];
+  return datos
+    .filter((fila) => fila && fila.document)
+    .map((fila) => ({ id: idDeNombre(fila.document.name), ...deCampos(fila.document.fields) }));
+}
+
+/**
+ * Colecciones pequenas que casi nunca cambian (salas, equipo). Se guardan
+ * unos segundos en la memoria de la funcion para que una rafaga de
+ * peticiones no se traduzca en una rafaga de lecturas facturables.
+ */
+const cache = new Map();
+const CACHE_MS = 20000;
+
+export async function listarConCache(col, limite = 1000) {
+  const guardado = cache.get(col);
+  if (guardado && Date.now() - guardado.ts < CACHE_MS) return guardado.datos;
+  const datos = await listar(col, limite);
+  cache.set(col, { ts: Date.now(), datos });
+  return datos;
+}
+
+/** Invalida la copia en memoria tras escribir en esa coleccion. */
+export function olvidarCache(col) {
+  if (col) cache.delete(col);
+  else cache.clear();
+}
+
 /** Un documento, o null si no existe. */
 export async function obtener(col, id) {
   if (!HAY_FIREBASE) {
@@ -277,6 +342,7 @@ export async function obtener(col, id) {
 export async function escribir(col, id, datos) {
   const cuerpo = { ...datos };
   delete cuerpo.id;
+  olvidarCache(col);
   if (!HAY_FIREBASE) {
     colMem(col).set(id, clonar(cuerpo));
     return { id, ...clonar(cuerpo) };
@@ -292,6 +358,7 @@ export async function escribir(col, id, datos) {
 export async function modificar(col, id, parcial) {
   const cuerpo = { ...parcial };
   delete cuerpo.id;
+  olvidarCache(col);
   const claves = Object.keys(cuerpo);
   if (!claves.length) return obtener(col, id);
   if (!HAY_FIREBASE) {
@@ -310,6 +377,7 @@ export async function modificar(col, id, parcial) {
 
 /** Borra el documento. No falla si ya no estaba. */
 export async function eliminar(col, id) {
+  olvidarCache(col);
   if (!HAY_FIREBASE) {
     colMem(col).delete(id);
     return;

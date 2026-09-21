@@ -1,5 +1,5 @@
 /* ============================================================
-   Parte de Salas — hoja de estilo unica.
+   Bitácora — hoja de estilo unica.
    Paleta clara en :root, oscura redefinida por tokens debajo.
    ============================================================ */
 
@@ -122,6 +122,7 @@ main{padding-block:18px 100px}
 .st-bloqueada{background:var(--bad-soft); color:var(--bad)}
 .st-hecha{background:var(--ok-soft); color:var(--ok)}
 .pr-urgente{color:var(--bad)} .pr-alta{color:var(--warn)} .pr-media{color:var(--info)} .pr-baja{color:var(--text-3)}
+.periodica{background:var(--accent-soft); color:var(--accent)}
 .area{font-size:11px; letter-spacing:.09em; text-transform:uppercase; color:var(--text-3); font-weight:600}
 
 /* ========================= tareas ========================= */
@@ -203,7 +204,7 @@ table.team tr:last-child td{border-bottom:0}
   padding:24px 16px calc(28px + env(safe-area-inset-bottom,0px)); gap:0}
 .acceso-caja{width:100%; max-width:390px}
 .marca{text-align:center; margin-bottom:26px}
-.marca .logo{width:46px; height:46px; margin:0 auto 12px; display:block}
+.marca .logo{width:54px; height:54px; margin:0 auto 13px; display:block}
 .marca b{display:block; font-family:"Oswald",sans-serif; font-size:27px; font-weight:600;
   letter-spacing:.09em; text-transform:uppercase; line-height:1.1}
 .marca p{color:var(--text-2); font-size:13.5px; margin:7px 0 0}

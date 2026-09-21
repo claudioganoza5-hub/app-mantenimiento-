@@ -1,6 +1,6 @@
 /** Crear, actualizar y eliminar tareas. Los permisos se comprueban aqui. */
 
-import { listar, obtener, escribir, modificar, eliminar, nuevoId } from "./_lib/db.js";
+import { listar, listarConCache, consultar, obtener, escribir, modificar, eliminar, nuevoId } from "./_lib/db.js";
 import { json, leerCuerpo, endpoint, metodoNoPermitido, exigirSesionCompleta, texto } from "./_lib/http.js";
 import {
   AREAS,
@@ -12,6 +12,7 @@ import {
   permisoSobreTarea,
   lineaHistorial,
   historialConLimite,
+  tareasVisibles,
   esTecnico,
   esDirector,
 } from "./_lib/model.js";
@@ -30,11 +31,20 @@ export default endpoint(async function (req, res) {
   const url = new URL(req.url, "http://local");
   const id = url.searchParams.get("id") || "";
 
+  if (req.method === "GET") return cerradas(res, persona);
   if (req.method === "POST") return crear(req, res, persona);
   if (req.method === "PATCH") return actualizar(req, res, persona, id);
   if (req.method === "DELETE") return borrar(req, res, persona, id);
-  return metodoNoPermitido(res, ["POST", "PATCH", "DELETE"]);
+  return metodoNoPermitido(res, ["GET", "POST", "PATCH", "DELETE"]);
 });
+
+/** Las tareas ya cerradas, solo cuando alguien pide verlas. */
+async function cerradas(res, persona) {
+  const salas = await listarConCache("salas");
+  const hechas = await consultar("tareas", [["estado", "==", "hecha"]], 400);
+  hechas.sort((a, b) => String(b.cerradaEn || b.actualizadoEn || "").localeCompare(String(a.cerradaEn || a.actualizadoEn || "")));
+  return json(res, 200, { tareas: tareasVisibles(persona, hechas, salas).slice(0, 150) });
+}
 
 async function crear(req, res, persona) {
   const cuerpo = await leerCuerpo(req);

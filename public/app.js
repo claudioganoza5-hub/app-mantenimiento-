@@ -1,5 +1,5 @@
 /* ============================================================
-   Parte de Salas — interfaz.
+   Bitácora — interfaz.
    Sin dependencias: el servidor manda JSON y aqui se pinta.
    ============================================================ */
 
@@ -8,6 +8,15 @@ const ESTADOS = { pendiente: "Pendiente", en_curso: "En curso", bloqueada: "Bloq
 const PRIOS = { baja: "Baja", media: "Media", alta: "Alta", urgente: "Urgente" };
 const ROLES = { director: "Dirección", encargado: "Encargado/a", tecnico: "Técnico/a" };
 const ORDEN_PRIO = { urgente: 0, alta: 1, media: 2, baja: 3 };
+const PERIODOS = {
+  semanal: "Semanal",
+  quincenal: "Cada 15 días",
+  mensual: "Mensual",
+  bimestral: "Cada 2 meses",
+  trimestral: "Trimestral",
+  semestral: "Semestral",
+  anual: "Anual",
+};
 
 const raiz = document.getElementById("raiz");
 
@@ -17,6 +26,9 @@ const S = {
   salas: [],
   equipo: [],
   tareas: [],
+  preventivas: [],
+  cerradas: [],
+  cerradasCargadas: false,
   tab: "",
   filtro: { estado: "abiertas", sala: "", area: "" },
   hoja: null,
@@ -32,6 +44,7 @@ const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const porId = (lista, id) => lista.find((x) => x.id === id) || null;
+const tareaPorId = (id) => porId(S.tareas, id) || porId(S.cerradas, id);
 const salaNombre = (id) => porId(S.salas, id)?.nombre || "—";
 const personaNombre = (id) => porId(S.equipo, id)?.nombre || null;
 const iniciales = (n) =>
@@ -96,7 +109,23 @@ async function cargarDatos() {
   S.salas = d.salas || [];
   S.equipo = d.equipo || [];
   S.tareas = d.tareas || [];
+  S.preventivas = d.preventivas || [];
+  if (d.avisoPreventivo) aviso(d.avisoPreventivo, true);
+  // Las cerradas que ya estaban cargadas pueden haberse reabierto.
+  if (S.cerradasCargadas) {
+    const abiertas = new Set(S.tareas.map((t) => t.id));
+    S.cerradas = S.cerradas.filter((t) => !abiertas.has(t.id));
+  }
 }
+
+/** Las cerradas no viajan en cada sondeo: se piden cuando hacen falta. */
+async function cargarCerradas() {
+  const d = await api("/api/tareas");
+  S.cerradas = d.tareas || [];
+  S.cerradasCargadas = true;
+}
+
+const todasLasTareas = () => S.tareas.concat(S.cerradas);
 
 /* ------------------------------- permisos ------------------------------- */
 
@@ -137,7 +166,15 @@ function pintar() {
   if (foco) foco.focus();
 }
 
-const LOGO = `<svg class="logo" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="11" fill="var(--surface-2)"/><path d="M13 33l11-19 11 19z" fill="var(--accent)"/><circle cx="24" cy="29" r="3" fill="var(--surface-2)"/></svg>`;
+// La aguja de una bitacora: la mitad que marca el norte en ambar,
+// la contraria apagada, dentro del aro de la caja.
+const LOGO = `<svg class="logo" viewBox="0 0 48 48" aria-hidden="true">
+  <rect width="48" height="48" rx="11" fill="var(--surface-2)"/>
+  <circle cx="24" cy="24" r="15" fill="none" stroke="var(--line)" stroke-width="1.5"/>
+  <path d="M24 12.5 L29.5 24 L18.5 24 Z" fill="var(--accent)"/>
+  <path d="M24 35.5 L29.5 24 L18.5 24 Z" fill="var(--text-3)"/>
+  <circle cx="24" cy="24" r="2" fill="var(--surface-2)"/>
+</svg>`;
 
 const ICONO_BORRAR = `<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9L2 12z"/><path d="M15 9l-4 6M11 9l4 6"/></svg>`;
 
@@ -186,7 +223,7 @@ function vistaListaPersonas() {
   }
 
   return `<div class="acceso"><div class="acceso-caja">
-    <div class="marca">${LOGO}<b>Parte de Salas</b><p>Elige tu nombre para entrar.</p></div>
+    <div class="marca">${LOGO}<b>Bitácora</b><p>Elige tu nombre para entrar.</p></div>
     ${cuerpo}
   </div></div>`;
 }
@@ -260,8 +297,11 @@ function vistaSetup() {
 /* ------------------------------ aplicación ------------------------------ */
 
 function pestanas() {
-  if (esDirector()) return [["resumen", "Resumen"], ["tareas", "Tareas"], ["equipo", "Equipo"], ["salas", "Salas"]];
-  if (esEncargado()) return [["resumen", "Resumen"], ["tareas", "Tareas"]];
+  if (esDirector()) {
+    return [["resumen", "Resumen"], ["tareas", "Tareas"], ["preventivo", "Preventivo"],
+            ["equipo", "Equipo"], ["salas", "Salas"]];
+  }
+  if (esEncargado()) return [["resumen", "Resumen"], ["tareas", "Tareas"], ["preventivo", "Preventivo"]];
   return [["mias", "Mis tareas"], ["sala", "Mi sala"]];
 }
 
@@ -273,7 +313,9 @@ function vistaApp() {
     S.tab === "resumen"
       ? vistaResumen()
       : S.tab === "tareas"
-      ? vistaTareas(S.tareas, true)
+      ? vistaTareas(null, true)
+      : S.tab === "preventivo"
+      ? vistaPreventivo()
       : S.tab === "equipo"
       ? vistaEquipo()
       : S.tab === "salas"
@@ -284,7 +326,7 @@ function vistaApp() {
 
   return `<header class="bar"><div class="wrap">
       <div class="bar-in">
-        <div class="brand"><b>Parte de Salas</b><span>${esc(ROLES[S.yo.rol])}</span></div>
+        <div class="brand"><b>Bitácora</b><span>${esc(ROLES[S.yo.rol])}</span></div>
         <div class="who"><b>${esc(S.yo.nombre)}</b>
           <button class="iconbtn" data-accion="menu-yo" title="Opciones" aria-label="Opciones">⋯</button></div>
       </div>
@@ -297,7 +339,7 @@ function vistaApp() {
 
 const tareasDeMisSalas = () => {
   const ids = misSalas().map((s) => s.id);
-  return S.tareas.filter((t) => ids.includes(t.sala));
+  return todasLasTareas().filter((t) => ids.includes(t.sala));
 };
 
 function botonNuevo(etiqueta) {
@@ -340,7 +382,10 @@ function vistaResumen() {
 
 function vistaTareas(lista, conSalas) {
   const f = S.filtro;
-  let out = lista.slice();
+  const necesitaCerradas = f.estado === "hecha" || f.estado === "todas";
+  if (necesitaCerradas && !S.cerradasCargadas) pedirCerradas();
+
+  let out = (lista || (necesitaCerradas ? todasLasTareas() : S.tareas)).slice();
   if (f.estado === "abiertas") out = out.filter((t) => t.estado !== "hecha");
   else if (f.estado === "atrasadas") out = out.filter(vencida);
   else if (f.estado === "sinasignar") out = out.filter((t) => !t.asignadoA && t.estado !== "hecha");
@@ -377,6 +422,10 @@ function vistaTareas(lista, conSalas) {
       .map(([k, v]) => `<button class="chip" data-f-area="${k}" aria-pressed="${f.area === k}">${esc(v)}</button>`)
       .join("")}</div>`;
 
+  if (necesitaCerradas && !S.cerradasCargadas) {
+    html += `<div class="cargando" style="min-height:120px"><span class="giro"></span>Buscando las cerradas…</div>`;
+    return html;
+  }
   html += out.length
     ? `<div class="tasks">${out.map(tarjetaTarea).join("")}</div>`
     : `<div class="empty"><b>Sin tareas aquí</b>Cambia el filtro o crea una nueva.</div>`;
@@ -391,6 +440,7 @@ function tarjetaTarea(t) {
       <span class="task-top">
         <span class="pill st-${esc(t.estado)}"><i class="dot"></i>${esc(ESTADOS[t.estado] || t.estado)}</span>
         <span class="area">${esc(AREAS[t.area] || "")}</span>
+        ${t.origen === "preventivo" ? `<span class="pill periodica">Periódica</span>` : ""}
         ${destacada ? `<span class="pill pr-${esc(t.prioridad)}" style="background:transparent;padding-left:0">▲ ${esc(PRIOS[t.prioridad])}</span>` : ""}
       </span>
       <span class="task-title">${esc(t.titulo)}</span>
@@ -402,10 +452,9 @@ function tarjetaTarea(t) {
 }
 
 function vistaMias() {
-  const mias = S.tareas.filter((t) => t.asignadoA === S.yo.id);
-  const abiertas = mias.filter((t) => t.estado !== "hecha");
-  const libres = S.tareas.filter((t) => !t.asignadoA && t.estado !== "hecha");
-  const hechas = mias.filter((t) => t.estado === "hecha").slice(0, 12);
+  const abiertas = S.tareas.filter((t) => t.asignadoA === S.yo.id);
+  const libres = S.tareas.filter((t) => !t.asignadoA);
+  const hechas = S.cerradas.filter((t) => t.asignadoA === S.yo.id).slice(0, 12);
 
   abiertas.sort((a, b) => {
     const va = vencida(a) ? 0 : 1, vb = vencida(b) ? 0 : 1;
@@ -421,11 +470,63 @@ function vistaMias() {
     html += `<div class="eyebrow" style="margin:26px 0 10px">Sin asignar en tus salas</div>
       <div class="tasks">${libres.map(tarjetaTarea).join("")}</div>`;
   }
-  if (hechas.length) {
+  if (!S.cerradasCargadas) {
+    html += `<div style="text-align:center;margin-top:26px">
+      <button class="btn sm" data-accion="ver-cerradas">Ver mis tareas cerradas</button></div>`;
+  } else if (hechas.length) {
     html += `<div class="eyebrow" style="margin:26px 0 10px">Cerradas recientemente</div>
       <div class="tasks">${hechas.map(tarjetaTarea).join("")}</div>`;
   }
   return html + botonNuevo("Reportar avería");
+}
+
+/* ---------------------------- preventivo ---------------------------- */
+
+function vistaPreventivo() {
+  const salas = misSalas();
+  const hoy = hoyISO();
+
+  const porSala = salas
+    .map((s) => {
+      const suyas = S.preventivas
+        .filter((p) => p.sala === s.id)
+        .sort((a, b) => String(a.proxima || "").localeCompare(String(b.proxima || "")));
+      const filas = suyas.length
+        ? suyas
+            .map((p) => {
+              const vence = p.activa === false ? "" : p.proxima || "";
+              const tarde = vence && vence <= hoy;
+              return `<tr${p.activa === false ? ' style="opacity:.5"' : ""}>
+                <td><b>${esc(p.titulo)}</b>
+                  ${p.activa === false ? ' <span class="area">(en pausa)</span>' : ""}
+                  <br><span class="area">${esc(AREAS[p.area] || "")}</span></td>
+                <td style="white-space:nowrap">${esc(PERIODOS[p.periodicidad] || p.periodicidad)}</td>
+                <td class="mono" style="white-space:nowrap">${
+                  p.activa === false
+                    ? "—"
+                    : `<span class="${tarde ? "vence late" : ""}">${esc(fechaCorta(vence) || "—")}</span>`
+                }</td>
+                <td style="text-align:right"><button class="btn sm ghost" data-editar-revision="${esc(p.id)}">Editar</button></td>
+              </tr>`;
+            })
+            .join("")
+        : `<tr><td colspan="4" style="color:var(--text-2);padding:14px 9px">
+             Sin revisiones periódicas en esta sala.
+             ${esDirector() ? `<button class="btn sm" style="margin-left:8px" data-recomendadas="${esc(s.id)}">Cargar cuadro recomendado</button>` : ""}
+           </td></tr>`;
+
+      return `<div class="panel" style="margin-bottom:14px">
+        <div class="panel-h"><h2>${esc(s.nombre)}</h2>
+          <button class="btn sm" data-nueva-revision="${esc(s.id)}">＋ Revisión</button></div>
+        <div class="tablewrap"><table class="team"><thead><tr>
+          <th>Revisión</th><th>Cada</th><th>Próxima</th><th></th></tr></thead>
+          <tbody>${filas}</tbody></table></div></div>`;
+    })
+    .join("");
+
+  return `<div class="note" style="margin-bottom:14px">Cuando llega la fecha, la revisión se convierte sola
+    en una tarea normal y salta a la vuelta siguiente. Si la anterior sigue abierta no se duplica:
+    esa misma tarea hace de aviso.</div>${porSala}`;
 }
 
 function vistaEquipo() {
@@ -482,7 +583,7 @@ function hojaTarea(id) {
     tipo: "tarea",
     id,
     html() {
-      const t = porId(S.tareas, id);
+      const t = tareaPorId(id);
       if (!t) return "";
       const gestiona = gestionaTarea(t);
       const avanza = avanzaTarea(t);
@@ -562,7 +663,7 @@ function hojaFormTarea(id) {
     tipo: "form-tarea",
     id: id || null,
     html() {
-      const t = id ? porId(S.tareas, id) : null;
+      const t = id ? tareaPorId(id) : null;
       const salas = misSalas();
       const salaDef = t ? t.sala : S.filtro.sala || salas[0]?.id || "";
       const areaDef = t ? t.area : esTecnico() ? S.yo.especialidad || "general" : "luces";
@@ -696,6 +797,60 @@ function hojaSala(id) {
   };
 }
 
+function hojaRevision(id, salaId) {
+  const p = id ? porId(S.preventivas, id) : null;
+  return {
+    tipo: "revision",
+    id: id || null,
+    sala: p ? p.sala : salaId,
+    html() {
+      const gente = S.equipo.filter((x) => x.activo !== false && x.rol !== "director");
+      return `<div class="scrim" data-scrim><div class="sheet" role="dialog" aria-label="Revisión periódica">
+        <div class="sheet-h"><h2>${p ? "Editar revisión" : "Nueva revisión"}</h2>
+          <button class="iconbtn" data-accion="cerrar" aria-label="Cerrar">✕</button></div>
+        <div class="sheet-b">
+          <div class="field"><label>Qué hay que revisar</label>
+            <input id="r-titulo" value="${esc(p?.titulo || "")}" data-autofoco
+              placeholder="Ej. Limpieza de filtros de la máquina de humo"></div>
+          <div class="grid2">
+            <div class="field"><label>Sala</label><select id="r-sala">
+              ${misSalas().map((s) => `<option value="${esc(s.id)}"${this.sala === s.id ? " selected" : ""}>${esc(s.nombre)}</option>`).join("")}
+            </select></div>
+            <div class="field"><label>Área</label><select id="r-area">
+              ${Object.entries(AREAS).map(([k, v]) => `<option value="${k}"${(p?.area || "general") === k ? " selected" : ""}>${esc(v)}</option>`).join("")}
+            </select></div>
+          </div>
+          <div class="field"><label>Instrucciones</label>
+            <textarea id="r-detalle" placeholder="Qué comprobar exactamente, dónde y con qué.">${esc(p?.detalle || "")}</textarea></div>
+          <div class="grid2">
+            <div class="field"><label>Cada cuánto</label><select id="r-periodo">
+              ${Object.entries(PERIODOS).map(([k, v]) => `<option value="${k}"${(p?.periodicidad || "mensual") === k ? " selected" : ""}>${esc(v)}</option>`).join("")}
+            </select></div>
+            <div class="field"><label>Próxima vez</label>
+              <input type="date" id="r-proxima" value="${esc(p?.proxima || hoyISO())}"></div>
+          </div>
+          <div class="grid2">
+            <div class="field"><label>Prioridad</label><select id="r-prio">
+              ${Object.entries(PRIOS).map(([k, v]) => `<option value="${k}"${(p?.prioridad || "media") === k ? " selected" : ""}>${esc(v)}</option>`).join("")}
+            </select></div>
+            <div class="field"><label>Siempre para</label><select id="r-asign">
+              <option value="">— Sin asignar —</option>
+              ${gente.map((x) => `<option value="${esc(x.id)}"${p?.asignadoA === x.id ? " selected" : ""}>${esc(x.nombre)}${x.especialidad ? " · " + esc(AREAS[x.especialidad]) : ""}</option>`).join("")}
+            </select></div>
+          </div>
+          ${p ? `<div class="field"><label>Estado</label><select id="r-activa">
+              <option value="1"${p.activa !== false ? " selected" : ""}>Activa</option>
+              <option value="0"${p.activa === false ? " selected" : ""}>En pausa (no genera tareas)</option></select></div>` : ""}
+          <div class="row" style="justify-content:space-between">
+            ${p ? `<button class="btn sm danger" data-accion="borrar-revision">Eliminar</button>` : "<span></span>"}
+            <span><button class="btn ghost" data-accion="cerrar">Cancelar</button>
+            <button class="btn primary" data-accion="guardar-revision">Guardar</button></span>
+          </div>
+        </div></div></div>`;
+    },
+  };
+}
+
 function hojaOpciones() {
   return {
     tipo: "opciones",
@@ -718,7 +873,8 @@ document.addEventListener("click", async (ev) => {
   const el = ev.target.closest(
     "[data-persona],[data-tecla],[data-accion],[data-tab],[data-abrir],[data-estado]," +
       "[data-f-estado],[data-f-sala],[data-f-area],[data-ir-sala],[data-ver]," +
-      "[data-editar-persona],[data-editar-sala],[data-toggle-sala],[data-scrim]"
+      "[data-editar-persona],[data-editar-sala],[data-toggle-sala],[data-scrim]," +
+      "[data-editar-revision],[data-nueva-revision],[data-recomendadas]"
   );
   if (!el) return;
 
@@ -742,6 +898,9 @@ document.addEventListener("click", async (ev) => {
   }
   if (el.hasAttribute("data-editar-persona")) { S.hoja = hojaPersona(el.getAttribute("data-editar-persona")); return pintar(); }
   if (el.hasAttribute("data-editar-sala")) { S.hoja = hojaSala(el.getAttribute("data-editar-sala")); return pintar(); }
+  if (el.hasAttribute("data-editar-revision")) { S.hoja = hojaRevision(el.getAttribute("data-editar-revision")); return pintar(); }
+  if (el.hasAttribute("data-nueva-revision")) { S.hoja = hojaRevision(null, el.getAttribute("data-nueva-revision")); return pintar(); }
+  if (el.hasAttribute("data-recomendadas")) return cargarRecomendadas(el.getAttribute("data-recomendadas"));
   if (el.hasAttribute("data-toggle-sala")) {
     const sid = el.getAttribute("data-toggle-sala");
     const arr = S.hoja.salasSel;
@@ -772,6 +931,9 @@ document.addEventListener("click", async (ev) => {
     case "nueva-sala": S.hoja = hojaSala(null); return pintar();
     case "guardar-sala": return guardarSala();
     case "borrar-sala": return borrarSala();
+    case "guardar-revision": return guardarRevision();
+    case "borrar-revision": return borrarRevision();
+    case "ver-cerradas": return pedirCerradas();
   }
 });
 
@@ -1074,6 +1236,67 @@ async function borrarPersona() {
   }, "Persona eliminada");
 }
 
+/* ----------------------------- preventivo ----------------------------- */
+
+let pidiendoCerradas = false;
+async function pedirCerradas() {
+  if (pidiendoCerradas || S.cerradasCargadas) return;
+  pidiendoCerradas = true;
+  try {
+    await cargarCerradas();
+  } catch (e) {
+    aviso(e.message, true);
+  } finally {
+    pidiendoCerradas = false;
+    pintar();
+  }
+}
+
+async function guardarRevision() {
+  const id = S.hoja.id;
+  const titulo = document.getElementById("r-titulo").value.trim();
+  if (!titulo) return aviso("Escribe qué hay que revisar.", true);
+  const activa = document.getElementById("r-activa");
+  const cuerpo = {
+    titulo,
+    sala: document.getElementById("r-sala").value,
+    area: document.getElementById("r-area").value,
+    detalle: document.getElementById("r-detalle").value.trim(),
+    periodicidad: document.getElementById("r-periodo").value,
+    proxima: document.getElementById("r-proxima").value || hoyISO(),
+    prioridad: document.getElementById("r-prio").value,
+    asignadoA: document.getElementById("r-asign").value,
+  };
+  if (activa) cuerpo.activa = activa.value === "1";
+
+  await conError(async () => {
+    if (id) await api(`/api/preventivas?id=${encodeURIComponent(id)}`, { method: "PATCH", cuerpo });
+    else await api("/api/preventivas", { method: "POST", cuerpo });
+    await cargarDatos();
+    S.hoja = null;
+    pintar();
+  }, id ? "Revisión actualizada" : "Revisión creada");
+}
+
+async function borrarRevision() {
+  const id = S.hoja.id;
+  await conError(async () => {
+    await api(`/api/preventivas?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    await cargarDatos();
+    S.hoja = null;
+    pintar();
+  }, "Revisión eliminada");
+}
+
+async function cargarRecomendadas(sala) {
+  await conError(async () => {
+    const r = await api("/api/preventivas", { method: "POST", cuerpo: { recomendadas: true, sala } });
+    await cargarDatos();
+    pintar();
+    aviso(`${r.creadas} revisiones añadidas`);
+  });
+}
+
 /* ------------------------------- salas ------------------------------- */
 
 async function guardarSala() {
@@ -1129,7 +1352,7 @@ setInterval(async () => {
     await cargarDatos();
     pintar();
   } catch {}
-}, 20000);
+}, 60000);
 
 document.addEventListener("visibilitychange", async () => {
   if (!document.hidden && S.vista === "app" && !S.hoja) {

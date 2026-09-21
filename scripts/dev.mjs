@@ -74,7 +74,7 @@ const servidor = http.createServer(async (req, res) => {
 
 servidor.listen(PUERTO, () => {
   const conFirebase = Boolean(process.env.FIREBASE_PROJECT_ID);
-  console.log(`\n  Parte de Salas  ->  http://localhost:${PUERTO}`);
+  console.log(`\n  Bitácora  ->  http://localhost:${PUERTO}`);
   console.log(`  Datos: ${conFirebase ? "Firestore" : "en memoria (se pierden al parar)"}`);
   console.log(`  Codigo de configuracion: ${process.env.SETUP_TOKEN}\n`);
 });

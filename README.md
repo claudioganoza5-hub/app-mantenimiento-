@@ -1,4 +1,4 @@
-# Parte de Salas
+# Bitácora
 
 Control de mantenimiento para las salas: dirección y encargados asignan tareas de
 luces, sonido y mantenimiento general; cada técnico entra con su propio código y
@@ -58,7 +58,7 @@ Son cuatro pasos y se hacen una sola vez. Calcula unos 20 minutos.
    cd parte-salas
    git init
    git add .
-   git commit -m "Parte de Salas"
+   git commit -m "Bitácora"
    git branch -M main
    git remote add origin https://github.com/TU-USUARIO/parte-salas.git
    git push -u origin main
@@ -125,6 +125,56 @@ ficha solo se puede si no tiene tareas abiertas.
 
 ---
 
+## Mantenimiento preventivo
+
+La pestaña **Preventivo** guarda las revisiones que se repiten: filtros de humo
+cada mes, luces de emergencia cada trimestre, anclajes cada seis meses. Cada una
+lleva su periodicidad y la fecha en que toca la próxima.
+
+Cuando esa fecha llega, la revisión **se convierte sola en una tarea normal** —
+con su sala, su área, su prioridad y, si se lo has puesto, su técnico— y salta a
+la vuelta siguiente. No hay nada programado que mantener: la comprobación se hace
+al cargar la aplicación, unas pocas veces por hora.
+
+Dos detalles pensados para que no moleste:
+
+- **No se acumulan duplicados.** Si la tarea anterior de esa revisión sigue
+  abierta, no se crea otra: la que ya hay sirve de aviso. Un local que lleva seis
+  meses sin repasarse no aparece con seis tareas idénticas.
+- **Se puede pausar.** Una revisión en pausa se queda guardada pero deja de
+  generar tareas. Útil mientras una sala está cerrada por reforma.
+
+En una sala vacía, dirección tiene el botón **Cargar cuadro recomendado**, que
+crea de golpe doce revisiones habituales en una sala de espectáculos. Son un punto
+de partida para editar, no una lista legal: las de protección contra incendios
+tienen periodicidades marcadas por normativa y por tu contrato de mantenimiento,
+así que confírmalas con tu empresa mantenedora.
+
+Los encargados gestionan las revisiones de su sala; el cuadro recomendado completo
+solo lo carga dirección.
+
+---
+
+## Consumo de Firestore
+
+El plan gratuito de Firebase da 50.000 lecturas de documento al día, y una
+aplicación que sondea al servidor las gasta rápido. Esto es lo que hace Bitácora
+para no acercarse al límite:
+
+- Solo viajan las **tareas abiertas**. Las cerradas se piden aparte y únicamente
+  cuando alguien quiere verlas.
+- **Salas y equipo se guardan 20 segundos en memoria**, porque casi nunca cambian.
+- El navegador **refresca cada 60 segundos**, solo con la pestaña a la vista, y
+  además al instante después de cualquier cambio propio.
+- La comprobación de revisiones vencidas se hace **como mucho cada 5 minutos**,
+  salvo cuando alguien acaba de crear o editar una, que entonces es inmediata.
+
+Con un equipo de diez personas esto se queda muy por debajo del límite. Si algún
+día crecéis mucho, el plan de pago de Firebase cobra por uso y a este volumen
+sigue costando céntimos.
+
+---
+
 ## Trabajar en tu ordenador
 
 ```bash
@@ -143,13 +193,15 @@ rellénalo. `.env.local` está en el `.gitignore`: nunca se sube.
 ## Qué hay dentro
 
 ```
-public/          la web: index.html, app.css, app.js
-api/             los endpoints (Vercel los publica como funciones)
-  _lib/db.js     acceso a Firestore por su API REST
-  _lib/auth.js   códigos cifrados y sesiones firmadas
-  _lib/model.js  reglas de roles y permisos
-scripts/dev.mjs  servidor local
+public/               la web: index.html, app.css, app.js
+api/                  los endpoints (Vercel los publica como funciones)
+  _lib/db.js          acceso a Firestore por su API REST
+  _lib/auth.js        códigos cifrados y sesiones firmadas
+  _lib/model.js       reglas de roles, permisos y periodicidades
+  _lib/preventivo.js  convierte las revisiones vencidas en tareas
+scripts/dev.mjs       servidor local
 ```
 
-Los datos se guardan en tres colecciones de Firestore: `salas`, `equipo` y
-`tareas`. Cada tarea lleva su historial firmado (quién, cuándo y qué).
+Los datos se guardan en cuatro colecciones de Firestore: `salas`, `equipo`,
+`tareas` y `preventivas`. Cada tarea lleva su historial firmado (quién, cuándo
+y qué).
